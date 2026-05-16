@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Tracker KPI">
+    <title>💰 Tracker KPI Keuangan</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: linear-gradient(135deg, #1a237e 0%, #283593 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 16px;
+            color: #fff;
+        }
+        
+        .container {
+            width: 100%;
+            max-width: 400px;
+            border-radius: 20px;
+            overflow: hidden;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #1a237e 0%, #283593 100%);
+            padding: 24px 20px;
+            text-align: center;
+            border-bottom: 3px solid #448aff;
+        }
+        
+        .header h1 {
+            font-size: 20px;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+        
+        .header p {
+            font-size: 12px;
+            opacity: 0.8;
+        }
+        
+        .content {
+            background: #f5f5f5;
+            padding: 20px;
+            min-height: 400px;
+        }
+        
+        .loading {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 300px;
+            font-size: 14px;
+            color: #666;
+        }
+        
+        .spinner {
+            width: 30px;
+            height: 30px;
+            border: 3px solid #e0e0e0;
+            border-top: 3px solid #1a237e;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 12px;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        .kpi-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+        
+        .kpi-card {
+            background: white;
+            border-radius: 12px;
+            padding: 16px;
+            text-align: center;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+            border-left: 4px solid;
+        }
+        
+        .kpi-label {
+            font-size: 11px;
+            font-weight: 500;
+            color: #999;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .kpi-value {
+            font-size: 18px;
+            font-weight: 700;
+            color: #333;
+            word-break: break-word;
+            line-height: 1.3;
+        }
+        
+        .kpi-card.income { border-left-color: #2e7d32; }
+        .kpi-card.expense { border-left-color: #c62828; }
+        .kpi-card.saldo { border-left-color: #1565c0; }
+        .kpi-card.rate { border-left-color: #f57f17; }
+        
+        .full-width {
+            grid-column: 1 / -1;
+        }
+        
+        .savings-rate {
+            background: linear-gradient(135deg, #fff9c4 0%, #ffe082 100%);
+            padding: 16px;
+            border-radius: 12px;
+            text-align: center;
+            margin-bottom: 16px;
+            border-left: 4px solid #f57f17;
+        }
+        
+        .savings-rate .label {
+            font-size: 11px;
+            color: #e65100;
+            text-transform: uppercase;
+            font-weight: 600;
+            margin-bottom: 6px;
+        }
+        
+        .savings-rate .value {
+            font-size: 28px;
+            font-weight: 700;
+            color: #f57f17;
+        }
+        
+        .last-updated {
+            font-size: 11px;
+            color: #999;
+            text-align: center;
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px solid #e0e0e0;
+        }
+        
+        .btn-refresh {
+            width: 100%;
+            padding: 12px;
+            background: #1a237e;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-top: 16px;
+            transition: background 0.3s;
+        }
+        
+        .btn-refresh:active {
+            background: #0d1f5c;
+            opacity: 0.8;
+        }
+        
+        .error {
+            background: #ffebee;
+            border: 1px solid #ef9a9a;
+            color: #c62828;
+            padding: 16px;
+            border-radius: 8px;
+            text-align: center;
+            font-size: 13px;
+            margin: 16px 0;
+        }
+        
+        .error-small {
+            font-size: 11px;
+            color: #999;
+            margin-top: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>💰 Tracker KPI</h1>
+            <p>Real-time dari Google Sheets</p>
+        </div>
+        <div class="content" id="content">
+            <div class="loading">
+                <div class="spinner"></div>
+                <div>Loading data...</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // CONFIG - Pakai Apps Script proxy (no CORS issue)
+        const PROXY_URL = "https://script.google.com/macros/s/AKfycbwntSbr-w6EfGLictnDAp--4nt0vhsC5bxaI6orCqsANv45TKEB15KdO9fToet_7XQ/exec";
+        
+        function formatCurrency(num) {
+            if (typeof num !== 'number') return 'N/A';
+            return new Intl.NumberFormat('id-ID', {
+                style: 'currency',
+                currency: 'IDR',
+                minimumFractionDigits: 0,
+                maximumFractionDigits: 0
+            }).format(num);
+        }
+        
+        function formatPercent(num) {
+            if (typeof num !== 'number') return 'N/A';
+            return (num * 100).toFixed(1) + '%';
+        }
+        
+        async function fetchKPI() {
+            const contentDiv = document.getElementById('content');
+            try {
+                const response = await fetch(PROXY_URL);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                const pemasukan = data.pemasukan || 0;
+                const pengeluaran = data.pengeluaran || 0;
+                const saldo = data.saldo || 0;
+                const savingsRate = data.savingsRate || 0;
+                
+                // Build HTML
+                let html = '';
+                
+                // Savings rate banner
+                html += `<div class="savings-rate">
+                    <div class="label">💹 Savings Rate</div>
+                    <div class="value">${formatPercent(savingsRate)}</div>
+                </div>`;
+                
+                // KPI Grid
+                html += `<div class="kpi-grid">
+                    <div class="kpi-card income">
+                        <div class="kpi-label">📥 Pemasukan</div>
+                        <div class="kpi-value">${formatCurrency(pemasukan)}</div>
+                    </div>
+                    <div class="kpi-card expense">
+                        <div class="kpi-label">📤 Pengeluaran</div>
+                        <div class="kpi-value">${formatCurrency(pengeluaran)}</div>
+                    </div>
+                    <div class="kpi-card saldo full-width">
+                        <div class="kpi-label">🏦 Sisa Saldo</div>
+                        <div class="kpi-value">${formatCurrency(saldo)}</div>
+                    </div>
+                </div>`;
+                
+                // Last updated
+                const now = new Date();
+                const timeStr = now.toLocaleTimeString('id-ID', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit'
+                });
+                html += `<div class="last-updated">Update: ${timeStr}</div>`;
+                
+                // Refresh button
+                html += `<button class="btn-refresh" onclick="location.reload()">🔄 Refresh</button>`;
+                
+                contentDiv.innerHTML = html;
+                
+            } catch (error) {
+                console.error('Error:', error);
+                let errorMsg = error.message;
+                contentDiv.innerHTML = `
+                    <div class="error">
+                        ⚠️ Error mengambil data
+                        <div class="error-small">${errorMsg}</div>
+                        <button class="btn-refresh" onclick="location.reload()" style="margin-top: 12px; width: 100%;">Coba lagi</button>
+                    </div>
+                `;
+            }
+        }
+        
+        // Load on startup
+        document.addEventListener('DOMContentLoaded', fetchKPI);
+        
+        // Auto-refresh setiap 5 menit
+        setInterval(fetchKPI, 5 * 60 * 1000);
+    </script>
+</body>
+</html>
