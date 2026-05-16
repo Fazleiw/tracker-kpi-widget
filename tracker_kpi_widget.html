@@ -116,7 +116,6 @@
         .kpi-card.income { border-left-color: #2e7d32; }
         .kpi-card.expense { border-left-color: #c62828; }
         .kpi-card.saldo { border-left-color: #1565c0; }
-        .kpi-card.rate { border-left-color: #f57f17; }
         
         .full-width {
             grid-column: 1 / -1;
@@ -206,8 +205,7 @@
     </div>
 
     <script>
-        // CONFIG - Pakai Apps Script proxy (no CORS issue)
-        const PROXY_URL = "https://script.google.com/macros/s/AKfycbwntSbr-w6EfGLictnDAp--4nt0vhsC5bxaI6orCqsANv45TKEB15KdO9fToet_7XQ/exec";
+        const PROXY_URL = "https://script.google.com/macros/s/AKfycbzmeGcq_zI_atbFmggi1dIeUwBucAjlMUSItv42gcv7uviwDtfA7rIGv7n10fKsSY4/exec";
         
         function formatCurrency(num) {
             if (typeof num !== 'number') return 'N/A';
@@ -224,78 +222,71 @@
             return (num * 100).toFixed(1) + '%';
         }
         
-        async function fetchKPI() {
+        // JSONP callback
+        window.kpiCallback = function(data) {
+            renderKPI(data);
+        };
+        
+        function renderKPI(data) {
             const contentDiv = document.getElementById('content');
-            try {
-                const response = await fetch(PROXY_URL);
-                
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}`);
-                }
-                
-                const data = await response.json();
-                
-                const pemasukan = data.pemasukan || 0;
-                const pengeluaran = data.pengeluaran || 0;
-                const saldo = data.saldo || 0;
-                const savingsRate = data.savingsRate || 0;
-                
-                // Build HTML
-                let html = '';
-                
-                // Savings rate banner
-                html += `<div class="savings-rate">
-                    <div class="label">💹 Savings Rate</div>
-                    <div class="value">${formatPercent(savingsRate)}</div>
-                </div>`;
-                
-                // KPI Grid
-                html += `<div class="kpi-grid">
-                    <div class="kpi-card income">
-                        <div class="kpi-label">📥 Pemasukan</div>
-                        <div class="kpi-value">${formatCurrency(pemasukan)}</div>
-                    </div>
-                    <div class="kpi-card expense">
-                        <div class="kpi-label">📤 Pengeluaran</div>
-                        <div class="kpi-value">${formatCurrency(pengeluaran)}</div>
-                    </div>
-                    <div class="kpi-card saldo full-width">
-                        <div class="kpi-label">🏦 Sisa Saldo</div>
-                        <div class="kpi-value">${formatCurrency(saldo)}</div>
-                    </div>
-                </div>`;
-                
-                // Last updated
-                const now = new Date();
-                const timeStr = now.toLocaleTimeString('id-ID', {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    second: '2-digit'
-                });
-                html += `<div class="last-updated">Update: ${timeStr}</div>`;
-                
-                // Refresh button
-                html += `<button class="btn-refresh" onclick="location.reload()">🔄 Refresh</button>`;
-                
-                contentDiv.innerHTML = html;
-                
-            } catch (error) {
-                console.error('Error:', error);
-                let errorMsg = error.message;
+            
+            const pemasukan = data.pemasukan || 0;
+            const pengeluaran = data.pengeluaran || 0;
+            const saldo = data.saldo || 0;
+            const savingsRate = data.savingsRate || 0;
+            
+            let html = '';
+            
+            html += `<div class="savings-rate">
+                <div class="label">💹 Savings Rate</div>
+                <div class="value">${formatPercent(savingsRate)}</div>
+            </div>`;
+            
+            html += `<div class="kpi-grid">
+                <div class="kpi-card income">
+                    <div class="kpi-label">📥 Pemasukan</div>
+                    <div class="kpi-value">${formatCurrency(pemasukan)}</div>
+                </div>
+                <div class="kpi-card expense">
+                    <div class="kpi-label">📤 Pengeluaran</div>
+                    <div class="kpi-value">${formatCurrency(pengeluaran)}</div>
+                </div>
+                <div class="kpi-card saldo full-width">
+                    <div class="kpi-label">🏦 Sisa Saldo</div>
+                    <div class="kpi-value">${formatCurrency(saldo)}</div>
+                </div>
+            </div>`;
+            
+            const now = new Date();
+            const timeStr = now.toLocaleTimeString('id-ID', {
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+            html += `<div class="last-updated">Update: ${timeStr}</div>`;
+            html += `<button class="btn-refresh" onclick="location.reload()">🔄 Refresh</button>`;
+            
+            contentDiv.innerHTML = html;
+        }
+        
+        function fetchKPI() {
+            const contentDiv = document.getElementById('content');
+            
+            // Try JSONP (works with CORS)
+            const script = document.createElement('script');
+            script.src = PROXY_URL + '?callback=kpiCallback';
+            script.onerror = () => {
                 contentDiv.innerHTML = `
                     <div class="error">
                         ⚠️ Error mengambil data
-                        <div class="error-small">${errorMsg}</div>
+                        <div class="error-small">Proxy tidak merespons</div>
                         <button class="btn-refresh" onclick="location.reload()" style="margin-top: 12px; width: 100%;">Coba lagi</button>
                     </div>
                 `;
-            }
+            };
+            document.body.appendChild(script);
         }
         
-        // Load on startup
         document.addEventListener('DOMContentLoaded', fetchKPI);
-        
-        // Auto-refresh setiap 5 menit
         setInterval(fetchKPI, 5 * 60 * 1000);
     </script>
 </body>
