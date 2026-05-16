@@ -222,11 +222,6 @@
             return (num * 100).toFixed(1) + '%';
         }
         
-        // JSONP callback
-        window.kpiCallback = function(data) {
-            renderKPI(data);
-        };
-        
         function renderKPI(data) {
             const contentDiv = document.getElementById('content');
             
@@ -268,22 +263,48 @@
             contentDiv.innerHTML = html;
         }
         
-        function fetchKPI() {
+        async function fetchKPI() {
             const contentDiv = document.getElementById('content');
             
-            // Try JSONP (works with CORS)
-            const script = document.createElement('script');
-            script.src = PROXY_URL + '?callback=kpiCallback';
-            script.onerror = () => {
-                contentDiv.innerHTML = `
-                    <div class="error">
-                        ⚠️ Error mengambil data
-                        <div class="error-small">Proxy tidak merespons</div>
-                        <button class="btn-refresh" onclick="location.reload()" style="margin-top: 12px; width: 100%;">Coba lagi</button>
-                    </div>
-                `;
-            };
-            document.body.appendChild(script);
+            try {
+                // Method 1: Try regular fetch
+                const response = await fetch(PROXY_URL);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                
+                const data = await response.json();
+                renderKPI(data);
+                
+            } catch (error) {
+                console.error('Fetch error:', error);
+                
+                // Method 2: Fallback to JSONP
+                try {
+                    window.kpiCallback = function(data) {
+                        renderKPI(data);
+                    };
+                    
+                    const script = document.createElement('script');
+                    script.src = PROXY_URL + '?callback=kpiCallback';
+                    script.timeout = 5000;
+                    script.onerror = () => {
+                        throw new Error('JSONP failed');
+                    };
+                    document.body.appendChild(script);
+                    
+                } catch (jsonpError) {
+                    console.error('JSONP error:', jsonpError);
+                    contentDiv.innerHTML = `
+                        <div class="error">
+                            ⚠️ Error mengambil data
+                            <div class="error-small">${error.message}</div>
+                            <button class="btn-refresh" onclick="location.reload()" style="margin-top: 12px; width: 100%;">Coba lagi</button>
+                        </div>
+                    `;
+                }
+            }
         }
         
         document.addEventListener('DOMContentLoaded', fetchKPI);
