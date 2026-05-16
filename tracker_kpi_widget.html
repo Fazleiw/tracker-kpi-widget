@@ -38,6 +38,7 @@
             padding: 24px 20px;
             text-align: center;
             border-bottom: 3px solid #448aff;
+            position: relative;
         }
         
         .header h1 {
@@ -49,6 +50,26 @@
         .header p {
             font-size: 12px;
             opacity: 0.8;
+        }
+        
+        .sync-badge {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            font-size: 11px;
+            background: rgba(255,255,255,0.2);
+            padding: 4px 8px;
+            border-radius: 12px;
+            color: #fff;
+        }
+        
+        .sync-badge.syncing {
+            animation: pulse 1.5s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
         }
         
         .content {
@@ -94,6 +115,23 @@
             text-align: center;
             box-shadow: 0 2px 8px rgba(0,0,0,0.05);
             border-left: 4px solid;
+            position: relative;
+        }
+        
+        .kpi-card.stale {
+            opacity: 0.7;
+        }
+        
+        .kpi-card.stale::after {
+            content: "📦 Cached";
+            position: absolute;
+            top: 4px;
+            right: 4px;
+            font-size: 9px;
+            background: #fff3cd;
+            color: #856404;
+            padding: 2px 6px;
+            border-radius: 4px;
         }
         
         .kpi-label {
@@ -128,6 +166,10 @@
             text-align: center;
             margin-bottom: 16px;
             border-left: 4px solid #f57f17;
+        }
+        
+        .savings-rate.stale {
+            opacity: 0.7;
         }
         
         .savings-rate .label {
@@ -172,6 +214,11 @@
             opacity: 0.8;
         }
         
+        .btn-refresh:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+        
         .error {
             background: #ffebee;
             border: 1px solid #ef9a9a;
@@ -195,6 +242,7 @@
         <div class="header">
             <h1>💰 Tracker KPI</h1>
             <p>Real-time dari Google Sheets</p>
+            <div class="sync-badge" id="syncBadge" style="display:none;">Syncing...</div>
         </div>
         <div class="content" id="content">
             <div class="loading">
@@ -206,6 +254,10 @@
 
     <script>
         const PROXY_URL = "https://script.google.com/macros/s/AKfycbzmeGcq_zI_atbFmggi1dIeUwBucAjlMUSItv42gcv7uviwDtfA7rIGv7n10fKsSY4/exec";
+        const CACHE_KEY = "tracker_kpi_cache";
+        const CACHE_TIMESTAMP_KEY = "tracker_kpi_timestamp";
+        const CACHE_DURATION = 5 * 60 * 1000; // 5 menit
+        const FETCH_TIMEOUT = 5000; // 5 detik timeout
         
         function formatCurrency(num) {
             if (typeof num !== 'number') return 'N/A';
@@ -222,7 +274,33 @@
             return (num * 100).toFixed(1) + '%';
         }
         
-        function renderKPI(data) {
+        function getCache() {
+            try {
+                const cached = localStorage.getItem(CACHE_KEY);
+                const timestamp = localStorage.getItem(CACHE_TIMESTAMP_KEY);
+                if (cached && timestamp) {
+                    return {
+                        data: JSON.parse(cached),
+                        timestamp: parseInt(timestamp),
+                        isStale: Date.now() - parseInt(timestamp) > CACHE_DURATION
+                    };
+                }
+            } catch (e) {
+                console.log('Cache read error:', e);
+            }
+            return null;
+        }
+        
+        function saveCache(data) {
+            try {
+                localStorage.setItem(CACHE_KEY, JSON.stringify(data));
+                localStorage.setItem(CACHE_TIMESTAMP_KEY, Date.now().toString());
+            } catch (e) {
+                console.log('Cache save error:', e);
+            }
+        }
+        
+        function renderKPI(data, isStale = false) {
             const contentDiv = document.getElementById('content');
             
             const pemasukan = data.pemasukan || 0;
@@ -232,21 +310,22 @@
             
             let html = '';
             
-            html += `<div class="savings-rate">
+            const staleClass = isStale ? ' stale' : '';
+            html += `<div class="savings-rate${staleClass}">
                 <div class="label">💹 Savings Rate</div>
                 <div class="value">${formatPercent(savingsRate)}</div>
             </div>`;
             
             html += `<div class="kpi-grid">
-                <div class="kpi-card income">
+                <div class="kpi-card income${staleClass}">
                     <div class="kpi-label">📥 Pemasukan</div>
                     <div class="kpi-value">${formatCurrency(pemasukan)}</div>
                 </div>
-                <div class="kpi-card expense">
+                <div class="kpi-card expense${staleClass}">
                     <div class="kpi-label">📤 Pengeluaran</div>
                     <div class="kpi-value">${formatCurrency(pengeluaran)}</div>
                 </div>
-                <div class="kpi-card saldo full-width">
+                <div class="kpi-card saldo full-width${staleClass}">
                     <div class="kpi-label">🏦 Sisa Saldo</div>
                     <div class="kpi-value">${formatCurrency(saldo)}</div>
                 </div>
@@ -257,57 +336,106 @@
                 hour: '2-digit',
                 minute: '2-digit'
             });
-            html += `<div class="last-updated">Update: ${timeStr}</div>`;
+            
+            if (isStale) {
+                html += `<div class="last-updated">⚠️ Data dari cache (${timeStr})<br>Sedang update...</div>`;
+            } else {
+                html += `<div class="last-updated">✅ Update: ${timeStr}</div>`;
+            }
+            
             html += `<button class="btn-refresh" onclick="location.reload()">🔄 Refresh</button>`;
             
             contentDiv.innerHTML = html;
         }
         
-        async function fetchKPI() {
-            const contentDiv = document.getElementById('content');
+        async function fetchWithTimeout(url, timeout) {
+            const controller = new AbortController();
+            const id = setTimeout(() => controller.abort(), timeout);
             
             try {
-                // Method 1: Try regular fetch
-                const response = await fetch(PROXY_URL);
+                const response = await fetch(url, { signal: controller.signal });
+                clearTimeout(id);
+                return response;
+            } catch (error) {
+                clearTimeout(id);
+                throw error;
+            }
+        }
+        
+        async function fetchKPI() {
+            const contentDiv = document.getElementById('content');
+            const syncBadge = document.getElementById('syncBadge');
+            
+            // Check cache dulu
+            const cache = getCache();
+            if (cache && cache.data) {
+                renderKPI(cache.data, cache.isStale);
+            }
+            
+            // Try fetch data
+            syncBadge.style.display = 'block';
+            syncBadge.classList.add('syncing');
+            
+            try {
+                const response = await fetchWithTimeout(PROXY_URL, FETCH_TIMEOUT);
                 
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}`);
                 }
                 
                 const data = await response.json();
-                renderKPI(data);
+                saveCache(data);
+                renderKPI(data, false);
+                syncBadge.style.display = 'none';
                 
             } catch (error) {
                 console.error('Fetch error:', error);
+                syncBadge.classList.remove('syncing');
+                syncBadge.textContent = '⚠️ Offline';
                 
-                // Method 2: Fallback to JSONP
+                // Try JSONP fallback
                 try {
                     window.kpiCallback = function(data) {
-                        renderKPI(data);
+                        saveCache(data);
+                        renderKPI(data, false);
+                        syncBadge.style.display = 'none';
                     };
                     
                     const script = document.createElement('script');
                     script.src = PROXY_URL + '?callback=kpiCallback';
-                    script.timeout = 5000;
+                    script.timeout = FETCH_TIMEOUT;
                     script.onerror = () => {
-                        throw new Error('JSONP failed');
+                        if (!cache || !cache.data) {
+                            contentDiv.innerHTML = `
+                                <div class="error">
+                                    ⚠️ Error mengambil data
+                                    <div class="error-small">${error.message}</div>
+                                    <button class="btn-refresh" onclick="location.reload()" style="margin-top: 12px; width: 100%;">Coba lagi</button>
+                                </div>
+                            `;
+                        }
+                        syncBadge.style.display = 'none';
                     };
                     document.body.appendChild(script);
                     
                 } catch (jsonpError) {
-                    console.error('JSONP error:', jsonpError);
-                    contentDiv.innerHTML = `
-                        <div class="error">
-                            ⚠️ Error mengambil data
-                            <div class="error-small">${error.message}</div>
-                            <button class="btn-refresh" onclick="location.reload()" style="margin-top: 12px; width: 100%;">Coba lagi</button>
-                        </div>
-                    `;
+                    if (!cache || !cache.data) {
+                        contentDiv.innerHTML = `
+                            <div class="error">
+                                ⚠️ Error mengambil data
+                                <div class="error-small">${error.message}</div>
+                                <button class="btn-refresh" onclick="location.reload()" style="margin-top: 12px; width: 100%;">Coba lagi</button>
+                            </div>
+                        `;
+                    }
+                    syncBadge.style.display = 'none';
                 }
             }
         }
         
         document.addEventListener('DOMContentLoaded', fetchKPI);
+        
+        // Background sync setiap 5 menit
         setInterval(fetchKPI, 5 * 60 * 1000);
     </script>
 </body>
